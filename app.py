@@ -1,124 +1,141 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.io as pio
 import io
 
-# Page setup
+# ----------------- PAGE CONFIG -----------------
 st.set_page_config(
     page_title="Smart Dashboard Generator",
     layout="wide",
-    initial_sidebar_state="expanded"
+    page_icon="📊"
 )
 
-st.markdown("<h1 style='text-align: center; color: #00ffff;'>🌌 Smart Dashboard Generator</h1>", unsafe_allow_html=True)
+st.title("📊 Smart Dashboard Generator")
 
-# Sidebar
-st.sidebar.header("Upload & Filters")
-uploaded_file = st.sidebar.file_uploader("Upload your CSV/Excel file", type=["csv", "xlsx"])
-ai_insights_input = st.sidebar.text_area("AI Insights / Notes", value="Add your insights here...")
+# ----------------- SIDEBAR -----------------
+st.sidebar.header("Upload Your Dataset")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload CSV, Excel or JSON file",
+    type=["csv", "xlsx", "json"]
+)
 
+st.sidebar.header("Filters")
+filters = {}
+
+# ----------------- LOAD DATA -----------------
 if uploaded_file:
-    # Read CSV/Excel
     try:
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
-        else:
+        elif uploaded_file.name.endswith(".xlsx"):
             df = pd.read_excel(uploaded_file)
+        elif uploaded_file.name.endswith(".json"):
+            df = pd.read_json(uploaded_file)
+        st.success("Data loaded successfully!")
+        st.dataframe(df.head())
     except Exception as e:
-        st.error(f"Error reading file: {e}")
+        st.error(f"Error loading file: {e}")
         st.stop()
+else:
+    st.warning("Please upload a CSV, Excel, or JSON file.")
+    st.stop()
 
-    st.sidebar.write("Columns detected:")
-    columns = df.columns.tolist()
+# ----------------- CATEGORICAL & NUMERICAL -----------------
+cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+num_cols = df.select_dtypes(include=["number"]).columns.tolist()
 
-    # Filters
-    filter_cols = st.sidebar.multiselect("Select columns to filter", options=columns)
-    filters = {}
-    for col in filter_cols:
-        unique_vals = df[col].unique().tolist()
-        selected = st.sidebar.multiselect(f"Filter {col}", options=unique_vals, default=unique_vals)
-        filters[col] = selected
+# ----------------- FILTERS -----------------
+for col in cat_cols:
+    options = df[col].unique()
+    selected = st.sidebar.multiselect(f"Filter by {col}", options, default=options)
+    filters[col] = selected
 
-    filtered_df = df.copy()
-    for col, selected in filters.items():
-        filtered_df = filtered_df[filtered_df[col].isin(selected)]
+# Apply filters
+filtered_df = df.copy()
+for col, selected in filters.items():
+    filtered_df = filtered_df[filtered_df[col].isin(selected)]
 
-    st.subheader("Filtered Data")
-    st.dataframe(filtered_df)
+# ----------------- DASHBOARD -----------------
+st.header("📈 Interactive Dashboards")
+neon_colors = px.colors.qualitative.Dark24  # neon/dark colors
 
-    # KPI Cards
-    st.subheader("Key Metrics")
-    kpi_cols = st.multiselect("Select numeric columns for KPIs", options=df.select_dtypes(include="number").columns.tolist())
-    kpis = {}
-    for col in kpi_cols:
-        kpis[col] = {
-            "Mean": round(filtered_df[col].mean(), 2),
-            "Sum": round(filtered_df[col].sum(), 2),
-            "Max": round(filtered_df[col].max(), 2),
-            "Min": round(filtered_df[col].min(), 2)
-        }
-        st.metric(label=f"{col} (Mean)", value=kpis[col]["Mean"])
+plots = {}
 
-    # Multi-Chart Dashboard
-    st.subheader("Dashboards")
-    plots = {}
-    neon_colors = px.colors.qualitative.Plotly  # bright neon-like colors
+# Categorical charts
+for col in cat_cols:
+    counts = filtered_df[col].value_counts().reset_index()
+    counts.columns = [col, "count"]
+    fig = px.bar(
+        counts,
+        x=col,
+        y="count",
+        text_auto=True,
+        title=f"{col} Distribution",
+        color=col,
+        color_discrete_sequence=neon_colors,
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    plots[col] = fig
 
-    for col in columns:
-        if filtered_df[col].dtype == "object" or filtered_df[col].nunique() < 30:
-            fig = px.bar(
-                filtered_df[col].value_counts().reset_index(),
-                x="index", y=col, text_auto=True,
-                title=f"{col.capitalize()} Distribution",
-                color="index",
-                color_discrete_sequence=neon_colors
-            )
-        else:
-            fig = px.histogram(
-                filtered_df, x=col, nbins=20,
-                title=f"{col.capitalize()} Distribution",
-                color_discrete_sequence=neon_colors
-            )
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#111111",
-            plot_bgcolor="#111111",
-            font=dict(color="cyan")
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        plots[col] = fig
+# Numerical charts
+for col in num_cols:
+    fig = px.histogram(
+        filtered_df,
+        x=col,
+        nbins=20,
+        title=f"{col} Distribution",
+        color_discrete_sequence=neon_colors,
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    plots[col] = fig
 
-    # AI Insights
-    st.subheader("🤖 AI Insights")
-    st.markdown(f"<p style='color:#00ff00'>{ai_insights_input}</p>", unsafe_allow_html=True)
+# ----------------- AI INSIGHTS -----------------
+st.header("🤖 AI Insights (Summary)")
+ai_insights = []
 
-    # Download Charts
-    st.subheader("Download Charts")
-    for name, fig in plots.items():
-        # HTML download
-        buf_html = io.StringIO()
-        fig.write_html(buf_html, include_plotlyjs='cdn')
-        buf_html.seek(0)
+# Categorical insights
+for col in cat_cols:
+    if not filtered_df[col].empty:
+        top = filtered_df[col].value_counts().idxmax()
+        insight = f"Most common {col}: '{top}' ({filtered_df[col].value_counts().max()} occurrences)"
+        st.info(insight)
+        ai_insights.append(insight)
+
+# Numerical insights
+for col in num_cols:
+    if not filtered_df[col].empty:
+        mean = filtered_df[col].mean()
+        median = filtered_df[col].median()
+        insight = f"{col}: mean={mean:.2f}, median={median:.2f}"
+        st.info(insight)
+        ai_insights.append(insight)
+
+# ----------------- DOWNLOAD CHARTS -----------------
+st.header("📥 Download Dashboard Charts")
+for col, fig in plots.items():
+    buf = io.BytesIO()
+    try:
+        fig.write_image(buf, format="png", engine="kaleido")
+        buf.seek(0)
         st.download_button(
-            label=f"📥 Download {name} (HTML)",
-            data=buf_html.getvalue(),
-            file_name=f"{name}.html",
+            label=f"Download {col} Chart as PNG",
+            data=buf,
+            file_name=f"{col}_chart.png",
+            mime="image/png"
+        )
+    except Exception as e:
+        st.warning(f"⚠️ PNG download for {col} failed. Using HTML instead.")
+        html_buf = io.StringIO()
+        fig.write_html(html_buf)
+        html_buf.seek(0)
+        st.download_button(
+            label=f"Download {col} Chart as HTML",
+            data=html_buf,
+            file_name=f"{col}_chart.html",
             mime="text/html"
         )
 
-        # PNG download
-        try:
-            img_bytes = pio.to_image(fig, format="png")
-            buf_png = io.BytesIO(img_bytes)
-            st.download_button(
-                label=f"📥 Download {name} (PNG)",
-                data=buf_png,
-                file_name=f"{name}.png",
-                mime="image/png"
-            )
-        except Exception:
-            st.warning(f"⚠️ PNG download for {name} failed. Please use HTML download.")
-
-else:
-    st.info("Please upload a CSV or Excel file to start generating dashboards.")
+st.success("Dashboard ready! Apply filters and download charts.")
