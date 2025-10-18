@@ -4,101 +4,102 @@ import plotly.express as px
 import io
 import plotly.io as pio
 
-st.set_page_config(page_title="Smart Dashboard Generator", layout="wide")
+st.set_page_config(page_title="Smart Dashboard Generator", layout="wide", initial_sidebar_state="expanded")
 
 st.title("🌟 Smart Dashboard Generator")
 
-# ---------------- Sidebar ----------------
-st.sidebar.header("Upload Your Data")
-uploaded_file = st.sidebar.file_uploader("Upload CSV, Excel, or JSON", type=["csv", "xlsx", "json"])
+# Sidebar for file upload and filters
+st.sidebar.header("Upload & Filters")
+uploaded_file = st.sidebar.file_uploader("Upload your CSV/Excel file", type=["csv", "xlsx"])
+ai_insights_input = st.sidebar.text_area("AI Insights / Notes", value="Add your insights here...")
 
-st.sidebar.header("Filters")
-filter_columns = {}
 if uploaded_file:
-    if uploaded_file.name.endswith("csv"):
-        df = pd.read_csv(uploaded_file)
-    elif uploaded_file.name.endswith("xlsx"):
-        df = pd.read_excel(uploaded_file)
-    elif uploaded_file.name.endswith("json"):
-        df = pd.read_json(uploaded_file)
-    else:
-        st.sidebar.error("Unsupported file type!")
+    # Read CSV or Excel
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
         st.stop()
 
-    for col in df.select_dtypes(include=['object', 'category']).columns:
-        options = st.sidebar.multiselect(f"Filter {col}", df[col].unique(), default=df[col].unique())
-        filter_columns[col] = options
+    st.sidebar.write("Columns detected:")
+    columns = df.columns.tolist()
+
+    # Sidebar filters
+    filter_cols = st.sidebar.multiselect("Select columns to filter", options=columns)
+    filters = {}
+    for col in filter_cols:
+        unique_vals = df[col].unique().tolist()
+        selected = st.sidebar.multiselect(f"Filter {col}", options=unique_vals, default=unique_vals)
+        filters[col] = selected
 
     # Apply filters
-    for col, opts in filter_columns.items():
-        df = df[df[col].isin(opts)]
+    filtered_df = df.copy()
+    for col, selected in filters.items():
+        filtered_df = filtered_df[filtered_df[col].isin(selected)]
 
-# ---------------- KPIs ----------------
-st.subheader("Key Metrics")
-if uploaded_file:
-    kpi_list = []
-    for col in df.select_dtypes(include=['number']).columns:
-        total = df[col].sum()
-        avg = df[col].mean()
-        kpi_list.append(f"**{col}** → Total: {total}, Average: {round(avg,2)}")
+    st.subheader("Filtered Data")
+    st.dataframe(filtered_df)
 
-    for kpi in kpi_list:
-        st.markdown(kpi)
+    # KPI Cards
+    st.subheader("Key Metrics")
+    kpi_cols = st.multiselect("Select numeric columns for KPIs", options=df.select_dtypes(include="number").columns.tolist())
+    kpis = {}
+    for col in kpi_cols:
+        kpis[col] = {
+            "Mean": round(filtered_df[col].mean(), 2),
+            "Sum": round(filtered_df[col].sum(), 2),
+            "Max": round(filtered_df[col].max(), 2),
+            "Min": round(filtered_df[col].min(), 2)
+        }
+        st.metric(label=f"{col} (Mean)", value=kpis[col]["Mean"])
 
-# ---------------- AI Insights ----------------
-st.subheader("AI Insights")
-ai_insights = []
-if uploaded_file:
-    for col in df.select_dtypes(include=['number']).columns:
-        top = df[col].idxmax()
-        bottom = df[col].idxmin()
-        ai_insights.append(f"Column **{col}** → Max: {df[col].max()} (Row {top}), Min: {df[col].min()} (Row {bottom})")
-
-    for insight in ai_insights:
-        st.markdown(insight)
-
-# ---------------- Dashboards ----------------
-st.subheader("Interactive Dashboards")
-plots = {}
-if uploaded_file:
-    for col in df.select_dtypes(include=['object', 'category']).columns:
-        counts = df[col].value_counts().reset_index()
-        counts.columns = [col, "count"]
-        fig = px.bar(counts, x=col, y="count", color=col, text_auto=True,
-                     title=f"{col} Distribution", template="plotly_dark")
+    # Generate dashboards
+    st.subheader("Dashboards")
+    plots = {}
+    for col in columns:
+        if filtered_df[col].dtype == "object" or filtered_df[col].nunique() < 30:
+            fig = px.bar(filtered_df[col].value_counts().reset_index(),
+                         x="index", y=col, text_auto=True,
+                         title=f"{col.capitalize()} Distribution",
+                         color="index")
+        else:
+            fig = px.histogram(filtered_df, x=col, nbins=20, title=f"{col.capitalize()} Distribution")
         st.plotly_chart(fig, use_container_width=True)
         plots[col] = fig
 
-# ---------------- Download Charts ----------------
-st.subheader("Download Charts")
-for name, fig in plots.items():
-    st.markdown(f"**{name.capitalize()} Chart**")
+    # AI Insights display
+    st.subheader("🤖 AI Insights")
+    st.write(ai_insights_input)
 
-    # Save as HTML
-    buf_html = io.StringIO()
-    fig.write_html(buf_html, include_plotlyjs='cdn')
-    buf_html.seek(0)
-    st.download_button(
-        label=f"📥 Download {name} chart (HTML)",
-        data=buf_html.getvalue(),
-        file_name=f"{name}.html",
-        mime="text/html"
-    )
-
-    # Save as PNG using orca fallback
-    try:
-        buf_png = io.BytesIO()
-        img_bytes = pio.to_image(fig, format="png", engine="kaleido")  # Only works if Kaleido works
-        buf_png.write(img_bytes)
-        buf_png.seek(0)
+    # Download charts
+    st.subheader("Download Charts")
+    for name, fig in plots.items():
+        # HTML download
+        buf_html = io.StringIO()
+        fig.write_html(buf_html, include_plotlyjs='cdn')
+        buf_html.seek(0)
         st.download_button(
-            label=f"📥 Download {name} chart (PNG)",
-            data=buf_png,
-            file_name=f"{name}.png",
-            mime="image/png"
+            label=f"📥 Download {name} (HTML)",
+            data=buf_html.getvalue(),
+            file_name=f"{name}.html",
+            mime="text/html"
         )
-    except Exception:
-        st.warning(f"⚠️ PNG download for {name} chart failed. Please use HTML download.")
 
-st.markdown("---")
-st.info("⚡ Upload your dataset, filter columns, explore KPIs & AI insights, visualize data, and download charts as HTML or PNG.")
+        # PNG download
+        try:
+            img_bytes = pio.to_image(fig, format="png")
+            buf_png = io.BytesIO(img_bytes)
+            st.download_button(
+                label=f"📥 Download {name} (PNG)",
+                data=buf_png,
+                file_name=f"{name}.png",
+                mime="image/png"
+            )
+        except Exception:
+            st.warning(f"⚠️ PNG download for {name} failed. Please use HTML download.")
+
+else:
+    st.info("Please upload a CSV or Excel file to start generating dashboards.")
