@@ -1,98 +1,123 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import urllib.parse
+from io import BytesIO
+import openai
 
 st.set_page_config(page_title="Smart Dashboard Generator", layout="wide", page_icon="📊")
 st.title("📊 Smart Dashboard Generator")
 
-# --- File Upload ---
-uploaded_file = st.file_uploader(
-    "Upload your dataset (CSV, Excel, JSON, Parquet)", 
-    type=["csv", "xlsx", "xls", "json", "parquet"]
-)
+# --- Sidebar: Upload Data ---
+st.sidebar.header("Upload your dataset")
+uploaded_file = st.sidebar.file_uploader("Choose CSV or Excel file", type=['csv', 'xlsx'])
+ai_key_input = st.sidebar.text_input("OpenAI API Key (optional, for AI insights)", type="password")
 
-# --- Read URL Query Parameters (stable) ---
-query_params = st.query_params
-
-df = None
+# --- Load Data ---
 if uploaded_file:
     try:
-        if uploaded_file.name.endswith(".csv"):
+        if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(uploaded_file)
-        elif uploaded_file.name.endswith(".json"):
-            df = pd.read_json(uploaded_file)
-        elif uploaded_file.name.endswith(".parquet"):
-            df = pd.read_parquet(uploaded_file)
         else:
-            st.error("Unsupported file type!")
+            df = pd.read_excel(uploaded_file)
+        st.success("Data loaded successfully!")
     except Exception as e:
         st.error(f"Error loading file: {e}")
+        st.stop()
+else:
+    st.info("Upload a dataset to get started.")
+    st.stop()
 
-if df is not None:
-    st.sidebar.header("Filter Options")
-    filter_values = {}
-
-    # Sidebar filters or apply query params
-    for col in df.select_dtypes(include=["object", "category"]).columns:
-        options = df[col].dropna().unique().tolist()
-        default_selection = options
-        # If URL has pre-defined filters
-        if col in query_params:
-            default_selection = query_params[col][0].split(",")
-            # Make sure the values exist in column
-            default_selection = [v for v in default_selection if v in options]
-        selected = st.sidebar.multiselect(f"{col}", options, default=default_selection)
+# --- Sidebar: Filters ---
+st.sidebar.header("Filter data")
+filter_values = {}
+for col in df.columns:
+    if df[col].dtype == 'object' or df[col].dtype.name == 'category':
+        options = df[col].unique().tolist()
+        selected = st.sidebar.multiselect(f"{col}", options, default=options)
+        filter_values[col] = selected
+    elif pd.api.types.is_numeric_dtype(df[col]):
+        min_val = float(df[col].min())
+        max_val = float(df[col].max())
+        selected = st.sidebar.slider(f"{col}", min_val, max_val, (min_val, max_val))
         filter_values[col] = selected
 
-    # Apply filters
-    filtered_df = df.copy()
-    for col, selected in filter_values.items():
-        filtered_df = filtered_df[filtered_df[col].isin(selected)]
+# --- Apply Filters ---
+filtered_df = df.copy()
+for col, val in filter_values.items():
+    if df[col].dtype == 'object' or df[col].dtype.name == 'category':
+        filtered_df = filtered_df[filtered_df[col].isin(val)]
+    else:
+        filtered_df = filtered_df[(filtered_df[col] >= val[0]) & (filtered_df[col] <= val[1])]
 
-    st.subheader("Filtered Dataset")
-    st.dataframe(filtered_df, use_container_width=True)
+if filtered_df.empty:
+    st.warning("No data available after applying filters.")
+    st.stop()
 
-    # --- Dashboard Charts ---
-    st.subheader("Visual Dashboards")
-    neon_colors = px.colors.qualitative.Bold
-    plots = []
+# --- Key Metrics ---
+st.header("📈 Key Metrics")
+numeric_cols = filtered_df.select_dtypes(include=['int64', 'float64']).columns
+kpi_list = []
+for col in numeric_cols:
+    mean_val = filtered_df[col].mean()
+    max_val = filtered_df[col].max()
+    min_val = filtered_df[col].min()
+    kpi_list.append(f"{col}: Mean={mean_val:.2f}, Max={max_val:.2f}, Min={min_val:.2f}")
 
-    for col in filtered_df.select_dtypes(include=["object", "category"]).columns:
+st.write("\n".join(kpi_list))
+
+# --- AI Insights ---
+ai_insights = []
+if ai_key_input:
+    openai.api_key = ai_key_input
+    st.header("🤖 AI Insights")
+    try:
+        prompt = f"Provide insights for this dataset:\n{filtered_df.head(20).to_dict()}"
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=prompt,
+            max_tokens=200
+        )
+        ai_text = response['choices'][0]['text'].strip()
+        ai_insights.append(ai_text)
+        st.info(ai_text)
+    except Exception as e:
+        st.error(f"Error fetching AI insights: {e}")
+
+# --- Dashboard Charts ---
+st.header("📊 Visual Dashboards")
+neon_colors = px.colors.qualitative.Bold
+plots = []
+
+for col in filtered_df.columns:
+    if filtered_df[col].dtype == "object" or filtered_df[col].dtype.name == "category":
+        top_vals = filtered_df[col].value_counts().reset_index()
+        top_vals.columns = ['category', 'count']
         fig = px.bar(
-            filtered_df[col].value_counts().reset_index(),
-            x='index',
-            y=col,
+            top_vals,
+            x='category',
+            y='count',
             text_auto=True,
             title=f"{col} Distribution",
-            color='index',
+            color='category',
             color_discrete_sequence=neon_colors
         )
-        fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-        plots.append(fig)
+    else:
+        fig = px.histogram(
+            filtered_df,
+            x=col,
+            nbins=20,
+            title=f"{col} Distribution",
+            color_discrete_sequence=neon_colors
+        )
 
-    # --- AI Insights ---
-    st.subheader("🤖 AI Insights")
-    ai_insights = []
-    for col in filtered_df.select_dtypes(include=["number"]).columns:
-        insight = f"{col}: Mean = {filtered_df[col].mean():.2f}, Max = {filtered_df[col].max():.2f}, Min = {filtered_df[col].min():.2f}"
-        st.markdown(f"- {insight}")
-        ai_insights.append(insight)
+    fig.update_layout(template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
+    plots.append(fig)
 
-    # --- Shareable Link ---
-    st.subheader("🔗 Shareable Link")
-    params = {}
-    for col, selected in filter_values.items():
-        params[col] = ",".join(map(str, selected))
+# --- Shareable Link ---
+st.sidebar.header("Share Dashboard")
+params = {col: filter_values[col] for col in filter_values}
+st.sidebar.code(f"Your shareable link: ?{pd.io.json.dumps(params)}")
 
-    base_url = st.secrets.get("BASE_URL", "https://share.streamlit.io/your-username/your-repo/main/app.py")
-    query_str = urllib.parse.urlencode(params)
-    shareable_link = f"{base_url}?{query_str}"
-    st.text_input("Share this link", shareable_link, key="share_link")
-    st.info("Anyone with this link will see the same filtered dashboard!")
+st.success("Dashboard ready! Use the shareable link to share filters.")
 
-else:
-    st.info("Please upload a dataset to generate dashboards.")
