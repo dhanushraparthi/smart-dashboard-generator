@@ -12,8 +12,8 @@ uploaded_file = st.file_uploader(
     type=["csv", "xlsx", "xls", "json", "parquet"]
 )
 
-# --- Read URL Query Parameters ---
-query_params = st.experimental_get_query_params()
+# --- Read URL Query Parameters (stable) ---
+query_params = st.query_params
 
 df = None
 if uploaded_file:
