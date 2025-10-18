@@ -1,98 +1,146 @@
+# app.py
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-from fpdf import FPDF
-import textwrap
 import os
+import tempfile
 
-st.set_page_config(page_title="Smart Dashboard Generator", layout="wide")
-st.title("📊 Smart Dashboard Generator")
+# Optional OpenAI
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except Exception:
+    OPENAI_AVAILABLE = False
 
-# --- Sidebar for file upload and filters ---
-st.sidebar.header("Upload your data")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV, Excel, or JSON file", type=["csv", "xlsx", "json"])
+# ---------------- Page Setup ----------------
+st.set_page_config(page_title="Smart Data Dashboard", layout="wide", page_icon="📊")
+st.title("📊 Smart Data Dashboard")
+st.markdown("Upload your dataset (CSV/Excel/JSON) and explore KPIs, visual insights, and AI-style insights.")
 
-if uploaded_file:
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    elif uploaded_file.name.endswith('.xlsx'):
-        df = pd.read_excel(uploaded_file)
-    else:
-        df = pd.read_json(uploaded_file)
+# ---------------- File Upload ----------------
+uploaded_file = st.file_uploader("Upload dataset", type=["csv","xlsx","xls","json"])
+if not uploaded_file:
+    st.info("Please upload a dataset to begin.")
+    st.stop()
 
-    st.sidebar.header("Filter Data")
-    filter_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-    filter_dict = {}
-    for col in filter_cols:
-        options = st.sidebar.multiselect(f"Filter {col}", df[col].unique(), default=df[col].unique())
-        filter_dict[col] = options
-        df = df[df[col].isin(options)]
+# ---------------- Load File ----------------
+def load_file(uploaded):
+    name = uploaded.name.lower()
+    if name.endswith(".csv"):
+        return pd.read_csv(uploaded)
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(uploaded)
+    if name.endswith(".json"):
+        return pd.read_json(uploaded)
+    raise ValueError("Unsupported file type")
 
-    st.header("Data Preview")
-    st.dataframe(df.head())
+try:
+    df = load_file(uploaded_file)
+except Exception as e:
+    st.error(f"Failed to read file: {e}")
+    st.stop()
 
-    # --- KPIs ---
-    st.header("Key Performance Indicators")
-    kpi_list = []
-    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    for col in numeric_cols:
-        mean_val = df[col].mean()
-        st.metric(label=f"Average {col}", value=f"{mean_val:.2f}")
-        kpi_list.append(f"Average {col}: {mean_val:.2f}")
+# Clean column names
+df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+st.success("File loaded successfully!")
+st.dataframe(df.head())
 
-    # --- Visual Dashboards ---
-    st.header("Visual Dashboards")
-    plots = []
-    for col in filter_cols:
-        counts = df[col].value_counts().reset_index()
-        counts.columns = ['category', 'count']
-        fig = px.bar(counts, x='category', y='count', color='category', text_auto=True, title=f"{col.capitalize()} Distribution")
-        st.plotly_chart(fig, use_container_width=True)
-        plots.append(fig)
+# ---------------- Sidebar Filters ----------------
+st.sidebar.header("Filters")
+filters = {}
+for col in df.select_dtypes(include=['object','category']).columns:
+    options = st.sidebar.multiselect(f"Filter {col.capitalize()}", df[col].unique(), default=df[col].unique())
+    filters[col] = options
 
-    # --- AI Insights (basic heuristics) ---
-    st.header("AI Insights")
-    ai_insights = []
-    for col in numeric_cols:
-        insight = f"Column '{col}' has mean={df[col].mean():.2f} and max={df[col].max():.2f}."
-        st.write(insight)
-        ai_insights.append(insight)
+# Apply filters
+filtered_df = df.copy()
+for col, selected in filters.items():
+    filtered_df = filtered_df[filtered_df[col].isin(selected)]
 
-    # --- PDF Download ---
-    st.header("Download PDF Report")
-    def create_pdf(kpis, plots, insights):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, "Smart Dashboard Report", ln=True, align='C')
-        pdf.ln(10)
+# ---------------- KPIs ----------------
+st.subheader("Key Metrics")
+kpi_cols = st.columns(4)
+total_sales = filtered_df['sales'].sum() if 'sales' in filtered_df.columns else None
+total_profit = filtered_df['profit'].sum() if 'profit' in filtered_df.columns else None
+avg_discount = filtered_df['discount'].mean() if 'discount' in filtered_df.columns else None
+total_quantity = filtered_df['quantity'].sum() if 'quantity' in filtered_df.columns else None
 
-        pdf.set_font("Arial", '', 12)
-        import tempfile
+if total_sales is not None:
+    kpi_cols[0].metric("Total Sales", f"${total_sales:,.2f}")
+if total_profit is not None:
+    kpi_cols[1].metric("Total Profit", f"${total_profit:,.2f}")
+if avg_discount is not None:
+    kpi_cols[2].metric("Avg Discount", f"{avg_discount:.2%}")
+if total_quantity is not None:
+    kpi_cols[3].metric("Total Quantity", f"{int(total_quantity):,}")
 
-        # Add KPIs
-        pdf.cell(0, 8, "Key Performance Indicators:", ln=True)
-        for kpi in kpis:
-            safe_text = kpi.encode('latin-1', errors='replace').decode('latin-1')
-            pdf.multi_cell(0, 6, '\n'.join(textwrap.wrap(safe_text, width=90)))
-        pdf.ln(5)
+# ---------------- Visual Insights ----------------
+st.subheader("Visual Insights")
+plots = {}
+numeric_cols = filtered_df.select_dtypes(include=np.number).columns.tolist()
+categorical_cols = filtered_df.select_dtypes(include=['object','category']).columns.tolist()
 
-        # Add AI Insights
-        pdf.cell(0, 8, "AI Insights:", ln=True)
-        for insight in insights:
-            safe_text = insight.encode('latin-1', errors='replace').decode('latin-1')
-            pdf.multi_cell(0, 6, '\n'.join(textwrap.wrap(safe_text, width=90)))
-        pdf.ln(5)
+for col in categorical_cols:
+    st.markdown(f"### {col.capitalize()} Distribution")
+    counts = filtered_df[col].value_counts().reset_index()
+    counts.columns = [col, "count"]
+    fig = px.bar(counts, x=col, y="count", color=col, text_auto=True)
+    st.plotly_chart(fig, use_container_width=True)
+    plots[col] = fig
 
-        # Add plots as images
-        for fig in plots:
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                fig.write_image(tmp_file.name)
-                pdf.image(tmp_file.name, w=180)
-                os.remove(tmp_file.name)
+for col in numeric_cols:
+    st.markdown(f"### {col.capitalize()} Histogram")
+    fig = px.histogram(filtered_df, x=col, nbins=20, color_discrete_sequence=["#00CC96"])
+    st.plotly_chart(fig, use_container_width=True)
+    plots[col] = fig
 
-        return pdf.output(dest='S').encode('latin-1', errors='replace')
+# ---------------- AI Insights ----------------
+st.subheader("AI / Heuristic Insights")
+def heuristic_insights(df):
+    insights = []
+    if 'sales' in df.columns:
+        insights.append(f"Total Sales: ${df['sales'].sum():,.2f}")
+    if 'profit' in df.columns:
+        insights.append(f"Total Profit: ${df['profit'].sum():,.2f}")
+    if 'discount' in df.columns and 'profit' in df.columns:
+        corr = df['discount'].corr(df['profit'])
+        insights.append(f"Discount vs Profit correlation: {corr:.2f}")
+    if 'sales' in df.columns and 'profit' in df.columns:
+        margin = df['profit'].sum() / df['sales'].sum() if df['sales'].sum() != 0 else 0
+        insights.append(f"Overall profit margin: {margin:.2%}")
+    if not insights:
+        insights.append("Not enough data for insights.")
+    return insights
 
-    pdf_bytes = create_pdf(kpi_list, plots, ai_insights)
+ai_text = "\n".join(heuristic_insights(filtered_df))
 
-    st.download_button("📥 Download PDF", data=pdf_bytes, file_name="dashboard_report.pdf", mime='application/pdf')
+# Optional OpenAI summary
+openai_key = os.environ.get("OPENAI_API_KEY") or (st.secrets.get("OPENAI_API_KEY") if "OPENAI_API_KEY" in st.secrets else None)
+if openai_key and OPENAI_AVAILABLE:
+    try:
+        openai.api_key = openai_key
+        prompt = "Summarize the following dataset insights in 3 short bullet points:\n" + ai_text
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=200,
+            temperature=0.2
+        )
+        ai_text = response.choices[0].message.content.strip()
+    except Exception:
+        pass
+
+for line in ai_text.split("\n"):
+    st.markdown(f"- {line}")
+
+# ---------------- Download Charts ----------------
+st.subheader("Download Charts")
+for name, fig in plots.items():
+    st.markdown(f"**Download {name.capitalize()} chart:**")
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    fig.write_image(tmp.name)
+    tmp.close()
+    with open(tmp.name, "rb") as f:
+        st.download_button(f"📥 Download {name} chart", data=f, file_name=f"{name}.png", mime="image/png")
+    os.remove(tmp.name)
