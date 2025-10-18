@@ -2,14 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
+import plotly.io as pio
 
-st.set_page_config(page_title="Smart Dashboard Generator", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Smart Dashboard Generator", layout="wide")
 
 st.title("🌟 Smart Dashboard Generator")
 
 # ---------------- Sidebar ----------------
 st.sidebar.header("Upload Your Data")
-uploaded_file = st.sidebar.file_uploader("Upload CSV, Excel, or JSON", type=["csv","xlsx","json"])
+uploaded_file = st.sidebar.file_uploader("Upload CSV, Excel, or JSON", type=["csv", "xlsx", "json"])
 
 st.sidebar.header("Filters")
 filter_columns = {}
@@ -69,21 +70,35 @@ if uploaded_file:
         plots[col] = fig
 
 # ---------------- Download Charts ----------------
-st.subheader("Download Charts as Images")
+st.subheader("Download Charts")
 for name, fig in plots.items():
     st.markdown(f"**{name.capitalize()} Chart**")
 
-    # Create PNG bytes
-    buf = io.BytesIO()
-    fig.write_image(buf, format="png")
-    buf.seek(0)
-    
+    # Save as HTML
+    buf_html = io.StringIO()
+    fig.write_html(buf_html, include_plotlyjs='cdn')
+    buf_html.seek(0)
     st.download_button(
-        label=f"📥 Download {name} chart (PNG)",
-        data=buf,
-        file_name=f"{name}.png",
-        mime="image/png"
+        label=f"📥 Download {name} chart (HTML)",
+        data=buf_html.getvalue(),
+        file_name=f"{name}.html",
+        mime="text/html"
     )
 
+    # Save as PNG using orca fallback
+    try:
+        buf_png = io.BytesIO()
+        img_bytes = pio.to_image(fig, format="png", engine="kaleido")  # Only works if Kaleido works
+        buf_png.write(img_bytes)
+        buf_png.seek(0)
+        st.download_button(
+            label=f"📥 Download {name} chart (PNG)",
+            data=buf_png,
+            file_name=f"{name}.png",
+            mime="image/png"
+        )
+    except Exception:
+        st.warning(f"⚠️ PNG download for {name} chart failed. Please use HTML download.")
+
 st.markdown("---")
-st.info("⚡ Upload your dataset, filter columns, explore KPIs & AI insights, visualize data, and download charts as PNGs.")
+st.info("⚡ Upload your dataset, filter columns, explore KPIs & AI insights, visualize data, and download charts as HTML or PNG.")
