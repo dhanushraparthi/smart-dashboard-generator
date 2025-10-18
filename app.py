@@ -114,40 +114,37 @@ for ins in ai_insights:
     st.write(f"- {ins}")
 
 # ---------------- PDF Report ----------------
-st.subheader("Download PDF Report")
 def create_pdf(kpis, plots, insights):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
     pdf.cell(0, 10, "Smart Data Dashboard Report", ln=True, align="C")
     pdf.ln(5)
+
+    # ---------------- KPIs ----------------
     pdf.set_font("Arial", size=12)
     for kpi in kpis:
-        pdf.multi_cell(0, 6, kpi)
+        # split long kpi lines into chunks of 100 chars
+        for i in range(0, len(kpi), 100):
+            part = kpi[i:i+100]
+            pdf.multi_cell(180, 6, part)
+
     pdf.ln(5)
+    # ---------------- AI Insights ----------------
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 6, "Insights:", ln=True)
     pdf.set_font("Arial", size=11)
     for line in insights:
-        pdf.multi_cell(0, 6, line)
+        for i in range(0, len(line), 100):
+            part = line[i:i+100]
+            pdf.multi_cell(180, 6, part)
     pdf.ln(5)
+
+    # ---------------- Charts ----------------
     for name, fig in plots.items():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
             fig.write_image(tmp_file.name)
             pdf.image(tmp_file.name, w=170)
             os.remove(tmp_file.name)
+
     return pdf.output(dest="S").encode("latin-1", errors="ignore")
-
-kpis_list = []
-if total_sales is not None:
-    kpis_list.append(f"Total Sales: ${total_sales:,.2f}")
-if total_profit is not None:
-    kpis_list.append(f"Total Profit: ${total_profit:,.2f}")
-if avg_discount is not None:
-    kpis_list.append(f"Average Discount: {avg_discount:.2%}")
-if total_qty is not None:
-    kpis_list.append(f"Total Quantity: {int(total_qty):,}")
-
-if st.button("Download PDF"):
-    pdf_bytes = create_pdf(kpis_list, plots, ai_insights)
-    st.download_button("📥 Download PDF", data=pdf_bytes, file_name="dashboard_report.pdf", mime="application/pdf")
