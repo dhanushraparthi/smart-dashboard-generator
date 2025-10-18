@@ -1,0 +1,7 @@
+streamlit==1.26.0
+pandas==2.1.1
+numpy==1.26.2
+matplotlib==3.8.1
+seaborn==0.12.3
+fpdf2==2.8.4
+python-pptx==0.6.21

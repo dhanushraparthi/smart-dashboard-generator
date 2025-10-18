@@ -1,0 +1,41 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Output reports (optional, if you don't want to track)
+*.pdf
+*.pptx
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Python egg / distribution
+*.egg
+*.egg-info
+dist/
+build/
