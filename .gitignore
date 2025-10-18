@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.venv
+
+# Streamlit
+.streamlit/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary / log files
+*.tmp
+*.log
+*.bak
+*.swp
+*.swo
+
+# Output files
+*.pdf
+*.pptx
