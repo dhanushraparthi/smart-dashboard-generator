@@ -1,20 +1,25 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io
 import plotly.io as pio
+import io
 
-st.set_page_config(page_title="Smart Dashboard Generator", layout="wide", initial_sidebar_state="expanded")
+# Page setup
+st.set_page_config(
+    page_title="Smart Dashboard Generator",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🌟 Smart Dashboard Generator")
+st.markdown("<h1 style='text-align: center; color: #00ffff;'>🌌 Smart Dashboard Generator</h1>", unsafe_allow_html=True)
 
-# Sidebar for file upload and filters
+# Sidebar
 st.sidebar.header("Upload & Filters")
 uploaded_file = st.sidebar.file_uploader("Upload your CSV/Excel file", type=["csv", "xlsx"])
 ai_insights_input = st.sidebar.text_area("AI Insights / Notes", value="Add your insights here...")
 
 if uploaded_file:
-    # Read CSV or Excel
+    # Read CSV/Excel
     try:
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
@@ -27,7 +32,7 @@ if uploaded_file:
     st.sidebar.write("Columns detected:")
     columns = df.columns.tolist()
 
-    # Sidebar filters
+    # Filters
     filter_cols = st.sidebar.multiselect("Select columns to filter", options=columns)
     filters = {}
     for col in filter_cols:
@@ -35,7 +40,6 @@ if uploaded_file:
         selected = st.sidebar.multiselect(f"Filter {col}", options=unique_vals, default=unique_vals)
         filters[col] = selected
 
-    # Apply filters
     filtered_df = df.copy()
     for col, selected in filters.items():
         filtered_df = filtered_df[filtered_df[col].isin(selected)]
@@ -56,25 +60,40 @@ if uploaded_file:
         }
         st.metric(label=f"{col} (Mean)", value=kpis[col]["Mean"])
 
-    # Generate dashboards
+    # Multi-Chart Dashboard
     st.subheader("Dashboards")
     plots = {}
+    neon_colors = px.colors.qualitative.Plotly  # bright neon-like colors
+
     for col in columns:
         if filtered_df[col].dtype == "object" or filtered_df[col].nunique() < 30:
-            fig = px.bar(filtered_df[col].value_counts().reset_index(),
-                         x="index", y=col, text_auto=True,
-                         title=f"{col.capitalize()} Distribution",
-                         color="index")
+            fig = px.bar(
+                filtered_df[col].value_counts().reset_index(),
+                x="index", y=col, text_auto=True,
+                title=f"{col.capitalize()} Distribution",
+                color="index",
+                color_discrete_sequence=neon_colors
+            )
         else:
-            fig = px.histogram(filtered_df, x=col, nbins=20, title=f"{col.capitalize()} Distribution")
+            fig = px.histogram(
+                filtered_df, x=col, nbins=20,
+                title=f"{col.capitalize()} Distribution",
+                color_discrete_sequence=neon_colors
+            )
+        fig.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#111111",
+            plot_bgcolor="#111111",
+            font=dict(color="cyan")
+        )
         st.plotly_chart(fig, use_container_width=True)
         plots[col] = fig
 
-    # AI Insights display
+    # AI Insights
     st.subheader("🤖 AI Insights")
-    st.write(ai_insights_input)
+    st.markdown(f"<p style='color:#00ff00'>{ai_insights_input}</p>", unsafe_allow_html=True)
 
-    # Download charts
+    # Download Charts
     st.subheader("Download Charts")
     for name, fig in plots.items():
         # HTML download
