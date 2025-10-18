@@ -1,141 +1,98 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io
+import urllib.parse
 
-# ----------------- PAGE CONFIG -----------------
-st.set_page_config(
-    page_title="Smart Dashboard Generator",
-    layout="wide",
-    page_icon="📊"
-)
-
+st.set_page_config(page_title="Smart Dashboard Generator", layout="wide", page_icon="📊")
 st.title("📊 Smart Dashboard Generator")
 
-# ----------------- SIDEBAR -----------------
-st.sidebar.header("Upload Your Dataset")
-uploaded_file = st.sidebar.file_uploader(
-    "Upload CSV, Excel or JSON file",
-    type=["csv", "xlsx", "json"]
+# --- File Upload ---
+uploaded_file = st.file_uploader(
+    "Upload your dataset (CSV, Excel, JSON, Parquet)", 
+    type=["csv", "xlsx", "xls", "json", "parquet"]
 )
 
-st.sidebar.header("Filters")
-filters = {}
+# --- Read URL Query Parameters ---
+query_params = st.experimental_get_query_params()
 
-# ----------------- LOAD DATA -----------------
+df = None
 if uploaded_file:
     try:
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(".xlsx"):
+        elif uploaded_file.name.endswith((".xlsx", ".xls")):
             df = pd.read_excel(uploaded_file)
         elif uploaded_file.name.endswith(".json"):
             df = pd.read_json(uploaded_file)
-        st.success("Data loaded successfully!")
-        st.dataframe(df.head())
+        elif uploaded_file.name.endswith(".parquet"):
+            df = pd.read_parquet(uploaded_file)
+        else:
+            st.error("Unsupported file type!")
     except Exception as e:
         st.error(f"Error loading file: {e}")
-        st.stop()
+
+if df is not None:
+    st.sidebar.header("Filter Options")
+    filter_values = {}
+
+    # Sidebar filters or apply query params
+    for col in df.select_dtypes(include=["object", "category"]).columns:
+        options = df[col].dropna().unique().tolist()
+        default_selection = options
+        # If URL has pre-defined filters
+        if col in query_params:
+            default_selection = query_params[col][0].split(",")
+            # Make sure the values exist in column
+            default_selection = [v for v in default_selection if v in options]
+        selected = st.sidebar.multiselect(f"{col}", options, default=default_selection)
+        filter_values[col] = selected
+
+    # Apply filters
+    filtered_df = df.copy()
+    for col, selected in filter_values.items():
+        filtered_df = filtered_df[filtered_df[col].isin(selected)]
+
+    st.subheader("Filtered Dataset")
+    st.dataframe(filtered_df, use_container_width=True)
+
+    # --- Dashboard Charts ---
+    st.subheader("Visual Dashboards")
+    neon_colors = px.colors.qualitative.Bold
+    plots = []
+
+    for col in filtered_df.select_dtypes(include=["object", "category"]).columns:
+        fig = px.bar(
+            filtered_df[col].value_counts().reset_index(),
+            x='index',
+            y=col,
+            text_auto=True,
+            title=f"{col} Distribution",
+            color='index',
+            color_discrete_sequence=neon_colors
+        )
+        fig.update_layout(template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+        plots.append(fig)
+
+    # --- AI Insights ---
+    st.subheader("🤖 AI Insights")
+    ai_insights = []
+    for col in filtered_df.select_dtypes(include=["number"]).columns:
+        insight = f"{col}: Mean = {filtered_df[col].mean():.2f}, Max = {filtered_df[col].max():.2f}, Min = {filtered_df[col].min():.2f}"
+        st.markdown(f"- {insight}")
+        ai_insights.append(insight)
+
+    # --- Shareable Link ---
+    st.subheader("🔗 Shareable Link")
+    params = {}
+    for col, selected in filter_values.items():
+        params[col] = ",".join(map(str, selected))
+
+    base_url = st.secrets.get("BASE_URL", "https://share.streamlit.io/your-username/your-repo/main/app.py")
+    query_str = urllib.parse.urlencode(params)
+    shareable_link = f"{base_url}?{query_str}"
+    st.text_input("Share this link", shareable_link, key="share_link")
+    st.info("Anyone with this link will see the same filtered dashboard!")
+
 else:
-    st.warning("Please upload a CSV, Excel, or JSON file.")
-    st.stop()
-
-# ----------------- CATEGORICAL & NUMERICAL -----------------
-cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-num_cols = df.select_dtypes(include=["number"]).columns.tolist()
-
-# ----------------- FILTERS -----------------
-for col in cat_cols:
-    options = df[col].unique()
-    selected = st.sidebar.multiselect(f"Filter by {col}", options, default=options)
-    filters[col] = selected
-
-# Apply filters
-filtered_df = df.copy()
-for col, selected in filters.items():
-    filtered_df = filtered_df[filtered_df[col].isin(selected)]
-
-# ----------------- DASHBOARD -----------------
-st.header("📈 Interactive Dashboards")
-neon_colors = px.colors.qualitative.Dark24  # neon/dark colors
-
-plots = {}
-
-# Categorical charts
-for col in cat_cols:
-    counts = filtered_df[col].value_counts().reset_index()
-    counts.columns = [col, "count"]
-    fig = px.bar(
-        counts,
-        x=col,
-        y="count",
-        text_auto=True,
-        title=f"{col} Distribution",
-        color=col,
-        color_discrete_sequence=neon_colors,
-        template="plotly_dark"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    plots[col] = fig
-
-# Numerical charts
-for col in num_cols:
-    fig = px.histogram(
-        filtered_df,
-        x=col,
-        nbins=20,
-        title=f"{col} Distribution",
-        color_discrete_sequence=neon_colors,
-        template="plotly_dark"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    plots[col] = fig
-
-# ----------------- AI INSIGHTS -----------------
-st.header("🤖 AI Insights (Summary)")
-ai_insights = []
-
-# Categorical insights
-for col in cat_cols:
-    if not filtered_df[col].empty:
-        top = filtered_df[col].value_counts().idxmax()
-        insight = f"Most common {col}: '{top}' ({filtered_df[col].value_counts().max()} occurrences)"
-        st.info(insight)
-        ai_insights.append(insight)
-
-# Numerical insights
-for col in num_cols:
-    if not filtered_df[col].empty:
-        mean = filtered_df[col].mean()
-        median = filtered_df[col].median()
-        insight = f"{col}: mean={mean:.2f}, median={median:.2f}"
-        st.info(insight)
-        ai_insights.append(insight)
-
-# ----------------- DOWNLOAD CHARTS -----------------
-st.header("📥 Download Dashboard Charts")
-for col, fig in plots.items():
-    buf = io.BytesIO()
-    try:
-        fig.write_image(buf, format="png", engine="kaleido")
-        buf.seek(0)
-        st.download_button(
-            label=f"Download {col} Chart as PNG",
-            data=buf,
-            file_name=f"{col}_chart.png",
-            mime="image/png"
-        )
-    except Exception as e:
-        st.warning(f"⚠️ PNG download for {col} failed. Using HTML instead.")
-        html_buf = io.StringIO()
-        fig.write_html(html_buf)
-        html_buf.seek(0)
-        st.download_button(
-            label=f"Download {col} Chart as HTML",
-            data=html_buf,
-            file_name=f"{col}_chart.html",
-            mime="text/html"
-        )
-
-st.success("Dashboard ready! Apply filters and download charts.")
+    st.info("Please upload a dataset to generate dashboards.")
