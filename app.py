@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 
-st.set_page_config(page_title="Smart Dashboard Generator", layout="wide")
-st.title("📊 Smart Dashboard Generator with AI Insights")
+st.set_page_config(page_title="Smart Multi-Dashboard Generator", layout="wide")
+st.title("📊 Smart Multi-Dashboard Generator with AI Insights")
 
 # ------------------- File Upload -------------------
 file = st.sidebar.file_uploader("Upload your dataset", type=["csv", "xlsx", "xls", "json"])
@@ -22,10 +22,9 @@ if file:
         st.stop()
 
     st.success("✅ Data loaded successfully!")
-    st.write("### Preview of Data")
     st.dataframe(df.head())
 
-    # Try convert any numeric-like columns
+    # Try converting number-like columns
     for col in df.columns:
         try:
             df[col] = pd.to_numeric(df[col], errors="ignore")
@@ -58,6 +57,7 @@ if file:
     sales_col = find_similar_column(["sales", "amount", "revenue"])
     profit_col = find_similar_column(["profit", "margin"])
     qty_col = find_similar_column(["quantity", "qty", "count"])
+    date_col = find_similar_column(["date", "order date", "month", "time"])
 
     # ------------------- Key Metrics -------------------
     st.subheader("📈 Key Metrics")
@@ -84,21 +84,6 @@ if file:
         st.metric("Total Quantity", safe_format(total_qty))
         kpi_texts.append(f"Total Quantity: {safe_format(total_qty)}")
 
-    if product_col and sales_col:
-        try:
-            top_selling = (
-                filtered_df.groupby(product_col)[sales_col]
-                .sum()
-                .sort_values(ascending=False)
-                .head(1)
-            )
-            top_product = top_selling.index[0]
-            top_value = top_selling.iloc[0]
-            st.metric("Top Selling Product", f"{top_product} ({safe_format(top_value, '$')})")
-            kpi_texts.append(f"Top Selling Product: {top_product} ({safe_format(top_value, '$')})")
-        except Exception:
-            pass
-
     # ------------------- AI Insights -------------------
     st.subheader("🤖 AI Insights")
     insights = []
@@ -108,37 +93,69 @@ if file:
         if sales_sum > 0:
             profit_margin = (profit_sum / sales_sum) * 100
             insights.append(f"Overall profit margin is {profit_margin:.2f}%.")
-
     if sales_col:
         avg_sales = pd.to_numeric(filtered_df[sales_col], errors="coerce").mean()
         insights.append(f"Average sale per record is ${avg_sales:,.2f}.")
-
     if len(insights) == 0:
         insights.append("Not enough numerical data to generate insights.")
-
     for i in insights:
         st.write(f"- {i}")
 
-    # ------------------- Visual Dashboards -------------------
+    # ------------------- Multi-Dashboard Section -------------------
     st.subheader("📊 Visual Dashboards")
 
-    numeric_cols = filtered_df.select_dtypes(include=[np.number]).columns.tolist()
-    cat_cols = filtered_df.select_dtypes(exclude=[np.number]).columns.tolist()
+    tabs = st.tabs(["💰 Sales Dashboard", "📦 Quantity Dashboard", "💹 Profit Dashboard", "📁 Category Overview"])
 
-    if sales_col and product_col:
-        fig1 = px.bar(
-            filtered_df.groupby(product_col)[sales_col].sum().sort_values(ascending=False).head(10).reset_index(),
-            x=product_col, y=sales_col,
-            title="Top 10 Products by Sales", color=sales_col
-        )
-        st.plotly_chart(fig1, use_container_width=True)
+    # --- Sales Dashboard ---
+    with tabs[0]:
+        if sales_col:
+            if product_col:
+                fig1 = px.bar(
+                    filtered_df.groupby(product_col)[sales_col].sum().sort_values(ascending=False).head(10).reset_index(),
+                    x=product_col, y=sales_col,
+                    title="Top 10 Products by Sales", color=sales_col, color_continuous_scale="teal"
+                )
+                st.plotly_chart(fig1, use_container_width=True)
 
-    elif len(cat_cols) >= 1 and len(numeric_cols) >= 1:
-        fig1 = px.bar(filtered_df, x=cat_cols[0], y=numeric_cols[0],
-                      title=f"{numeric_cols[0]} by {cat_cols[0]}")
-        st.plotly_chart(fig1, use_container_width=True)
-    else:
-        st.info("Upload a dataset with both numeric and categorical columns to generate visual dashboards.")
+            if date_col:
+                try:
+                    filtered_df[date_col] = pd.to_datetime(filtered_df[date_col], errors="coerce")
+                    fig2 = px.line(
+                        filtered_df.groupby(filtered_df[date_col].dt.to_period("M"))[sales_col].sum().reset_index(),
+                        x=date_col, y=sales_col, title="Sales Trend Over Time"
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
+                except Exception:
+                    st.info("Could not render time-based sales chart.")
+
+    # --- Quantity Dashboard ---
+    with tabs[1]:
+        if qty_col:
+            fig3 = px.histogram(filtered_df, x=qty_col, nbins=20, title="Quantity Distribution", color_discrete_sequence=["orange"])
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.info("No Quantity column found.")
+
+    # --- Profit Dashboard ---
+    with tabs[2]:
+        if profit_col:
+            fig4 = px.scatter(filtered_df, x=sales_col, y=profit_col, color=profit_col, title="Profit vs Sales Scatter Plot")
+            st.plotly_chart(fig4, use_container_width=True)
+        else:
+            st.info("No Profit data found.")
+
+    # --- Category Overview ---
+    with tabs[3]:
+        cat_cols = filtered_df.select_dtypes(exclude=[np.number]).columns.tolist()
+        if len(cat_cols) > 0 and sales_col:
+            for col in cat_cols[:2]:
+                fig5 = px.bar(
+                    filtered_df.groupby(col)[sales_col].sum().sort_values(ascending=False).reset_index(),
+                    x=col, y=sales_col, title=f"Sales by {col}", color=sales_col
+                )
+                st.plotly_chart(fig5, use_container_width=True)
+        else:
+            st.info("No categorical columns to visualize.")
 
     # ------------------- Shareable Link -------------------
     st.subheader("🔗 Shareable Dashboard Link")
