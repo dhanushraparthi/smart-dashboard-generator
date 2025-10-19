@@ -1,20 +1,27 @@
-# Smart Dashboard Generator
+📊 Overview
 
-Professional **interactive dashboard generator** with AI insights and report exports.
+Smart Dashboard Generator is an AI-powered Streamlit web app that automatically analyzes any uploaded dataset (CSV, Excel, JSON, etc.) and generates interactive dashboards, insights, and summaries — no coding required.
 
-## Features
+It detects numerical and categorical columns, visualizes trends using Plotly charts, and even provides AI-driven key metrics and conclusions.
 
-- Upload **CSV, Excel, or JSON** datasets
-- **Interactive dashboards** with Plotly charts
-- **Key Metrics** (KPIs) like sales, profit, discount, quantity
-- **AI insights** using OpenAI (optional) or fallback heuristic summaries
-- **Export reports** as PDF and PPTX
-- **Sidebar filters** to customize analysis
+🚀 Features
 
-## Installation
+✅ Upload any data file — CSV, XLSX, JSON, or TXT
+✅ Automatic data profiling (columns, stats, and types)
+✅ Dynamic dashboards (bar, line, pie, histograms, etc.)
+✅ AI-generated insights & conclusions
+✅ Key metrics like totals, averages, maximums
+✅ Filter sidebar for focused exploration
+✅ Shareable dashboard links
 
-1. Clone the repository:
+🧩 Tech Stack
 
-```bash
-git clone https://github.com/yourusername/smart-dashboard-generator.git
-cd smart-dashboard-generator
+Python 🐍
+
+Streamlit – for the web interface
+
+Pandas / NumPy – for data manipulation
+
+Plotly – for visual dashboards
+
+OpenAI API (optional) – for AI-generated insights
