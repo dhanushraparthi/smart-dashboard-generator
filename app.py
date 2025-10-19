@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import numpy as np
+import plotly.express as px
 
-st.set_page_config(page_title="Smart Multi-Dashboard Generator", layout="wide")
-st.title("📊 Smart Multi-Dashboard Generator with AI Insights")
+st.set_page_config(page_title="🧠 Smart Universal Dashboard Generator", layout="wide")
+st.title("🌍 Smart Universal Dashboard Generator")
 
 # ------------------- File Upload -------------------
 file = st.sidebar.file_uploader("Upload your dataset", type=["csv", "xlsx", "xls", "json"])
@@ -24,17 +24,15 @@ if file:
     st.success("✅ Data loaded successfully!")
     st.dataframe(df.head())
 
-    # Try converting number-like columns
-    for col in df.columns:
-        try:
-            df[col] = pd.to_numeric(df[col], errors="ignore")
-        except Exception:
-            pass
+    # ------------------- Data Type Detection -------------------
+    num_cols = df.select_dtypes(include=np.number).columns.tolist()
+    cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
+    date_cols = [c for c in df.columns if "date" in c.lower() or "time" in c.lower()]
 
-    # ------------------- Sidebar Filters -------------------
+    # ------------------- Filters -------------------
     st.sidebar.header("🔍 Filters")
     filters = {}
-    for col in df.select_dtypes(include=["object", "category"]).columns:
+    for col in cat_cols:
         unique_vals = df[col].dropna().unique()
         if len(unique_vals) < 50:
             selected = st.sidebar.multiselect(f"Filter by {col}", options=unique_vals)
@@ -45,137 +43,108 @@ if file:
     for col, vals in filters.items():
         filtered_df = filtered_df[filtered_df[col].isin(vals)]
 
-    # ------------------- Helper: Smart Column Finder -------------------
-    def find_similar_column(possible_names):
-        for col in df.columns:
-            for name in possible_names:
-                if name.lower() in col.lower():
-                    return col
-        return None
+    # ------------------- Tabs -------------------
+    tabs = st.tabs([
+        "📈 Overview Dashboard",
+        "📊 Categorical Analysis",
+        "📉 Correlation Insights",
+        "🧠 AI Summary & Conclusion"
+    ])
 
-    product_col = find_similar_column(["product", "item", "name"])
-    sales_col = find_similar_column(["sales", "amount", "revenue"])
-    profit_col = find_similar_column(["profit", "margin"])
-    qty_col = find_similar_column(["quantity", "qty", "count"])
-    date_col = find_similar_column(["date", "order date", "month", "time"])
+    # ------------------- Overview Dashboard -------------------
+    with tabs[0]:
+        st.subheader("📈 Overview Dashboard")
+        if len(num_cols) > 0:
+            st.write("### Key Numerical Insights")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Records", f"{len(filtered_df):,}")
+            col2.metric("Numeric Columns", f"{len(num_cols)}")
+            col3.metric("Categorical Columns", f"{len(cat_cols)}")
 
-    # ------------------- Key Metrics -------------------
-    st.subheader("📈 Key Metrics")
-    kpi_texts = []
+            # Plot top numerical distributions
+            for col in num_cols[:3]:
+                fig = px.histogram(filtered_df, x=col, nbins=30, title=f"Distribution of {col}")
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No numerical columns found in dataset.")
 
-    def safe_format(value, prefix="", suffix=""):
-        try:
-            return f"{prefix}{float(value):,.2f}{suffix}"
-        except Exception:
-            return str(value)
+    # ------------------- Categorical Dashboard -------------------
+    with tabs[1]:
+        st.subheader("📊 Categorical Analysis")
+        if len(cat_cols) > 0 and len(num_cols) > 0:
+            num_col = st.selectbox("Select numeric column for analysis", num_cols)
+            for col in cat_cols[:2]:
+                fig = px.bar(
+                    filtered_df.groupby(col)[num_col].mean().reset_index(),
+                    x=col, y=num_col, color=num_col,
+                    title=f"Average {num_col} by {col}"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        elif len(cat_cols) > 0:
+            for col in cat_cols[:3]:
+                fig = px.histogram(filtered_df, x=col, title=f"Count of {col}")
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No categorical columns found.")
 
-    if sales_col:
-        total_sales = pd.to_numeric(filtered_df[sales_col], errors="coerce").sum()
-        st.metric("Total Sales", safe_format(total_sales, "$"))
-        kpi_texts.append(f"Total Sales: {safe_format(total_sales, '$')}")
+    # ------------------- Correlation Dashboard -------------------
+    with tabs[2]:
+        st.subheader("📉 Correlation Insights")
+        if len(num_cols) > 1:
+            corr = filtered_df[num_cols].corr()
+            fig = px.imshow(corr, text_auto=True, title="Correlation Heatmap", color_continuous_scale="RdBu_r")
+            st.plotly_chart(fig, use_container_width=True)
 
-    if profit_col:
-        total_profit = pd.to_numeric(filtered_df[profit_col], errors="coerce").sum()
-        st.metric("Total Profit", safe_format(total_profit, "$"))
-        kpi_texts.append(f"Total Profit: {safe_format(total_profit, '$')}")
-
-    if qty_col:
-        total_qty = pd.to_numeric(filtered_df[qty_col], errors="coerce").sum()
-        st.metric("Total Quantity", safe_format(total_qty))
-        kpi_texts.append(f"Total Quantity: {safe_format(total_qty)}")
+            # Top correlation pairs
+            corr_unstack = corr.unstack().sort_values(ascending=False)
+            corr_unstack = corr_unstack[corr_unstack < 1]
+            st.write("**Top 5 Strongest Relationships:**")
+            st.dataframe(corr_unstack.head(5))
+        else:
+            st.info("Not enough numerical columns to compute correlations.")
 
     # ------------------- AI Insights -------------------
-    st.subheader("🤖 AI Insights")
-    insights = []
-    if sales_col and profit_col:
-        sales_sum = pd.to_numeric(filtered_df[sales_col], errors="coerce").sum()
-        profit_sum = pd.to_numeric(filtered_df[profit_col], errors="coerce").sum()
-        if sales_sum > 0:
-            profit_margin = (profit_sum / sales_sum) * 100
-            insights.append(f"Overall profit margin is {profit_margin:.2f}%.")
-    if sales_col:
-        avg_sales = pd.to_numeric(filtered_df[sales_col], errors="coerce").mean()
-        insights.append(f"Average sale per record is ${avg_sales:,.2f}.")
-    if len(insights) == 0:
-        insights.append("Not enough numerical data to generate insights.")
-    for i in insights:
-        st.write(f"- {i}")
-
-    # ------------------- Multi-Dashboard Section -------------------
-    st.subheader("📊 Visual Dashboards")
-
-    tabs = st.tabs(["💰 Sales Dashboard", "📦 Quantity Dashboard", "💹 Profit Dashboard", "📁 Category Overview"])
-
-    # --- Sales Dashboard ---
-    with tabs[0]:
-        if sales_col:
-            if product_col:
-                fig1 = px.bar(
-                    filtered_df.groupby(product_col)[sales_col].sum().sort_values(ascending=False).head(10).reset_index(),
-                    x=product_col, y=sales_col,
-                    title="Top 10 Products by Sales", color=sales_col, color_continuous_scale="teal"
-                )
-                st.plotly_chart(fig1, use_container_width=True)
-
-            if date_col:
-                try:
-                    filtered_df[date_col] = pd.to_datetime(filtered_df[date_col], errors="coerce")
-                    fig2 = px.line(
-                        filtered_df.groupby(filtered_df[date_col].dt.to_period("M"))[sales_col].sum().reset_index(),
-                        x=date_col, y=sales_col, title="Sales Trend Over Time"
-                    )
-                    st.plotly_chart(fig2, use_container_width=True)
-                except Exception:
-                    st.info("Could not render time-based sales chart.")
-
-    # --- Quantity Dashboard ---
-    with tabs[1]:
-        if qty_col:
-            fig3 = px.histogram(filtered_df, x=qty_col, nbins=20, title="Quantity Distribution", color_discrete_sequence=["orange"])
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("No Quantity column found.")
-
-    # --- Profit Dashboard ---
-    with tabs[2]:
-        if profit_col:
-            fig4 = px.scatter(filtered_df, x=sales_col, y=profit_col, color=profit_col, title="Profit vs Sales Scatter Plot")
-            st.plotly_chart(fig4, use_container_width=True)
-        else:
-            st.info("No Profit data found.")
-
-    # --- Category Overview ---
     with tabs[3]:
-        cat_cols = filtered_df.select_dtypes(exclude=[np.number]).columns.tolist()
-        if len(cat_cols) > 0 and sales_col:
-            for col in cat_cols[:2]:
-                fig5 = px.bar(
-                    filtered_df.groupby(col)[sales_col].sum().sort_values(ascending=False).reset_index(),
-                    x=col, y=sales_col, title=f"Sales by {col}", color=sales_col
-                )
-                st.plotly_chart(fig5, use_container_width=True)
+        st.subheader("🧠 AI Summary & Conclusion")
+
+        insights = []
+
+        # General dataset insights
+        insights.append(f"Dataset contains **{len(df):,} records** and **{len(df.columns)} columns**.")
+        if len(num_cols) > 0:
+            insights.append(f"There are **{len(num_cols)} numerical columns**, suitable for trend and correlation analysis.")
+        if len(cat_cols) > 0:
+            insights.append(f"There are **{len(cat_cols)} categorical columns**, ideal for segmentation or grouping.")
+        if len(date_cols) > 0:
+            insights.append(f"Date columns detected: {', '.join(date_cols)} — possible for time series visualizations.")
+
+        # Statistical observations
+        for col in num_cols[:3]:
+            try:
+                mean = filtered_df[col].mean()
+                std = filtered_df[col].std()
+                insights.append(f"Column **{col}** → mean: {mean:.2f}, std: {std:.2f}.")
+            except:
+                pass
+
+        # Dynamic conclusion
+        if len(num_cols) > 1:
+            insights.append("Dataset shows multiple numerical relationships — correlation analysis may uncover key drivers.")
+        elif len(cat_cols) > 1:
+            insights.append("Dataset is mostly categorical — frequency and proportion charts are most useful.")
         else:
-            st.info("No categorical columns to visualize.")
+            insights.append("Dataset appears simple — not enough variation for complex dashboards.")
+
+        for i in insights:
+            st.write("- " + i)
+
+        st.info("This conclusion adapts based on your uploaded dataset — no manual configuration needed!")
 
     # ------------------- Shareable Link -------------------
-    st.subheader("🔗 Shareable Dashboard Link")
+    st.sidebar.markdown("### 🔗 Shareable Dashboard Link")
     filters_str = "&".join([f"{k}={','.join(v)}" for k, v in filters.items()])
     share_url = f"?{filters_str}" if filters else "?"
-    st.code(f"Share this dashboard link: {share_url}")
+    st.sidebar.code(f"Share this dashboard: {share_url}")
 
-    # ------------------- Conclusion -------------------
-    st.subheader("🧠 Conclusion")
-    if sales_col and profit_col:
-        if sales_sum > 0:
-            if profit_margin > 20:
-                st.success("The business is performing strongly with healthy profit margins.")
-            elif profit_margin > 10:
-                st.warning("Profit margins are moderate — there is room for improvement.")
-            else:
-                st.error("Profit margins are low — cost optimization may be needed.")
-        else:
-            st.info("Sales values are zero or missing — unable to compute performance metrics.")
-    else:
-        st.info("Upload a dataset with Sales and Profit columns to generate a detailed conclusion.")
 else:
-    st.info("👆 Upload a dataset to begin.")
+    st.info("👆 Upload a dataset to generate dashboards.")
