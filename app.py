@@ -22,9 +22,15 @@ if file:
         st.stop()
 
     st.success("✅ Data loaded successfully!")
-
     st.write("### Preview of Data")
     st.dataframe(df.head())
+
+    # Try convert any numeric-like columns
+    for col in df.columns:
+        try:
+            df[col] = pd.to_numeric(df[col], errors="ignore")
+        except Exception:
+            pass
 
     # ------------------- Sidebar Filters -------------------
     st.sidebar.header("🔍 Filters")
@@ -57,43 +63,54 @@ if file:
     st.subheader("📈 Key Metrics")
     kpi_texts = []
 
+    def safe_format(value, prefix="", suffix=""):
+        try:
+            return f"{prefix}{float(value):,.2f}{suffix}"
+        except Exception:
+            return str(value)
+
     if sales_col:
-        total_sales = filtered_df[sales_col].sum()
-        st.metric("Total Sales", f"${total_sales:,.2f}")
-        kpi_texts.append(f"Total Sales: ${total_sales:,.2f}")
+        total_sales = pd.to_numeric(filtered_df[sales_col], errors="coerce").sum()
+        st.metric("Total Sales", safe_format(total_sales, "$"))
+        kpi_texts.append(f"Total Sales: {safe_format(total_sales, '$')}")
 
     if profit_col:
-        total_profit = filtered_df[profit_col].sum()
-        st.metric("Total Profit", f"${total_profit:,.2f}")
-        kpi_texts.append(f"Total Profit: ${total_profit:,.2f}")
+        total_profit = pd.to_numeric(filtered_df[profit_col], errors="coerce").sum()
+        st.metric("Total Profit", safe_format(total_profit, "$"))
+        kpi_texts.append(f"Total Profit: {safe_format(total_profit, '$')}")
 
     if qty_col:
-        total_qty = filtered_df[qty_col].sum()
-        st.metric("Total Quantity", f"{total_qty:,}")
-        kpi_texts.append(f"Total Quantity: {total_qty:,}")
+        total_qty = pd.to_numeric(filtered_df[qty_col], errors="coerce").sum()
+        st.metric("Total Quantity", safe_format(total_qty))
+        kpi_texts.append(f"Total Quantity: {safe_format(total_qty)}")
 
     if product_col and sales_col:
-        top_selling = (
-            filtered_df.groupby(product_col)[sales_col]
-            .sum()
-            .sort_values(ascending=False)
-            .head(1)
-        )
-        top_product = top_selling.index[0]
-        top_value = top_selling.iloc[0]
-        st.metric("Top Selling Product", f"{top_product} (${top_value:,.2f})")
-        kpi_texts.append(f"Top Selling Product: {top_product} (${top_value:,.2f})")
+        try:
+            top_selling = (
+                filtered_df.groupby(product_col)[sales_col]
+                .sum()
+                .sort_values(ascending=False)
+                .head(1)
+            )
+            top_product = top_selling.index[0]
+            top_value = top_selling.iloc[0]
+            st.metric("Top Selling Product", f"{top_product} ({safe_format(top_value, '$')})")
+            kpi_texts.append(f"Top Selling Product: {top_product} ({safe_format(top_value, '$')})")
+        except Exception:
+            pass
 
     # ------------------- AI Insights -------------------
     st.subheader("🤖 AI Insights")
-
     insights = []
     if sales_col and profit_col:
-        profit_margin = (filtered_df[profit_col].sum() / filtered_df[sales_col].sum()) * 100
-        insights.append(f"Overall profit margin is {profit_margin:.2f}%.")
+        sales_sum = pd.to_numeric(filtered_df[sales_col], errors="coerce").sum()
+        profit_sum = pd.to_numeric(filtered_df[profit_col], errors="coerce").sum()
+        if sales_sum > 0:
+            profit_margin = (profit_sum / sales_sum) * 100
+            insights.append(f"Overall profit margin is {profit_margin:.2f}%.")
 
-    if sales_col and qty_col:
-        avg_sales = filtered_df[sales_col].mean()
+    if sales_col:
+        avg_sales = pd.to_numeric(filtered_df[sales_col], errors="coerce").mean()
         insights.append(f"Average sale per record is ${avg_sales:,.2f}.")
 
     if len(insights) == 0:
@@ -120,7 +137,6 @@ if file:
         fig1 = px.bar(filtered_df, x=cat_cols[0], y=numeric_cols[0],
                       title=f"{numeric_cols[0]} by {cat_cols[0]}")
         st.plotly_chart(fig1, use_container_width=True)
-
     else:
         st.info("Upload a dataset with both numeric and categorical columns to generate visual dashboards.")
 
@@ -133,12 +149,15 @@ if file:
     # ------------------- Conclusion -------------------
     st.subheader("🧠 Conclusion")
     if sales_col and profit_col:
-        if profit_margin > 20:
-            st.success("The business is performing strongly with healthy profit margins.")
-        elif profit_margin > 10:
-            st.warning("Profit margins are moderate — there is room for improvement.")
+        if sales_sum > 0:
+            if profit_margin > 20:
+                st.success("The business is performing strongly with healthy profit margins.")
+            elif profit_margin > 10:
+                st.warning("Profit margins are moderate — there is room for improvement.")
+            else:
+                st.error("Profit margins are low — cost optimization may be needed.")
         else:
-            st.error("Profit margins are low — cost optimization may be needed.")
+            st.info("Sales values are zero or missing — unable to compute performance metrics.")
     else:
         st.info("Upload a dataset with Sales and Profit columns to generate a detailed conclusion.")
 else:
